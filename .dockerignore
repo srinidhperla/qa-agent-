@@ -1,0 +1,27 @@
+# Build context is the repo root for both images — keep it small and secret-free.
+.git
+.claude
+ai-sdlc
+**/node_modules
+frontend/dist
+
+# Secrets — supplied at runtime (env_file / bind mounts), never baked into an image
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+backend/config
+**/*service-account*.json
+**/*-credentials.json
+
+# Runtime state — bind-mounted from the host instead
+backend/logs
+backend/data/oauth-tokens.json
+backend/data/executions.json
+backend/data/custom-test-cases.json
+backend/data/test-repository.json
+backend/data/channel-cache.json
+backend/data/devemail-sso-token.json
+backend/data/dropbox-loadtest-progress*.json
+*.log

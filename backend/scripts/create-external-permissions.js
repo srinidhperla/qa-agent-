@@ -2,7 +2,7 @@
  * Creates files in Agent Permissions folder and shares them with external users
  * (domains other than storefuze.com).
  */
-require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
+require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 const { google }  = require('googleapis');
 const driveClient = require('../src/clients/driveClient');
 

@@ -1,0 +1,91 @@
+# Migration QA Agent — production stack.
+#
+#   cp .env.example .env        # fill in real values (never commit .env)
+#   docker compose up -d --build
+#   UI  -> http://<host>:${FRONTEND_PORT:-5001}   (nginx: SPA + /api proxy)
+#   API -> http://<host>:${BACKEND_PORT:-8081}/api/health
+#
+# Optional local MongoDB instead of Atlas:
+#   set MONGODB_URI=mongodb://mongo:27017 in .env, then
+#   docker compose --profile mongo up -d --build
+#
+# The root .env feeds both the backend container (env_file) and the frontend build args
+# (Compose reads it automatically for ${...} interpolation).
+
+name: migration-qa
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: migration-qa-backend:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      # No display in the container — run the CloudFuze UI automation headless.
+      CF_BROWSER_HEADLESS: 'true'
+    volumes:
+      # Runtime JSON fallback store, OAuth tokens, test-case catalogs, feature-scope docs
+      - ./backend/data:/app/backend/data
+      # Winston app.log + per-execution log files
+      - ./backend/logs:/app/backend/logs
+      # Service-account keys referenced by GOOGLE_SERVICE_ACCOUNT_KEY* (relative to backend/)
+      - ./backend/config:/app/backend/config:ro
+    # Lets the container reach services on the Docker host (e.g. the :8080 calendar / Outlook-data
+    # APIs) as http://host.docker.internal:8080 — `localhost` inside the container is the container.
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    # Only applies with --profile mongo; the backend connects to Mongo once at startup.
+    depends_on:
+      mongo:
+        condition: service_started
+        required: false
+    # Chromium (Playwright) needs more than Docker's 64 MB default /dev/shm.
+    shm_size: 1gb
+    # API published on the host at ${BACKEND_PORT:-8081} (container listens on 5000).
+    # The UI does not need this — its nginx proxies /api to backend:5000 internally.
+    ports:
+      - '${BACKEND_PORT:-8081}:5000'
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: '5'
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_AUTH_ENABLED: ${VITE_AUTH_ENABLED:-false}
+        VITE_AZURE_CLIENT_ID: ${VITE_AZURE_CLIENT_ID:-}
+        VITE_AZURE_TENANT_ID: ${VITE_AZURE_TENANT_ID:-common}
+    image: migration-qa-frontend:latest
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - '${FRONTEND_PORT:-5001}:80'
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+  mongo:
+    image: mongo:7
+    profiles: ['mongo']
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    expose:
+      - '27017'
+
+volumes:
+  mongo-data:

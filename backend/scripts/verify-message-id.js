@@ -1,5 +1,5 @@
 'use strict';
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 
 const axios         = require('axios');
 const outlookClient = require('../src/clients/outlookClient');

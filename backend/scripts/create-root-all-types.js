@@ -2,7 +2,7 @@
  * Creates one file of every major type at the root of Agent My Drive.
  * Run from backend/: node scripts/create-root-all-types.js
  */
-require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
+require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 const driveClient = require('../src/clients/driveClient');
 
 const EMAIL          = 'zara@storefuze.com';

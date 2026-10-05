@@ -15,7 +15,7 @@
  * fetched are not lost.
  */
 const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 
 const logger = require('../src/utils/logger');
 const env = require('../src/config/env');

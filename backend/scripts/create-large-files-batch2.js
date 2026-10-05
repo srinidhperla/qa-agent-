@@ -2,7 +2,7 @@
  * Batch 2 — adds 5 more large files to "Large Data Size" folder (total → 15 files)
  * Run: node scripts/create-large-files-batch2.js
  */
-require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
+require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 const { google }   = require('googleapis');
 const { Readable } = require('stream');
 const driveClient  = require('../src/clients/driveClient');

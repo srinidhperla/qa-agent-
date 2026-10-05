@@ -21,9 +21,9 @@ AI Agent System for Gmail → Outlook migration quality assurance. Three intelli
 ### 1. Backend
 
 ```bash
-cd backend
-cp .env.example .env
+cp .env.example .env   # at the repo ROOT — backend, frontend, scripts and Docker all read this one file
 # Fill in your API credentials in .env
+cd backend
 npm install
 npm run dev
 ```
@@ -39,6 +39,27 @@ npm run dev
 ```
 
 The dashboard opens at `http://localhost:3000` (proxies API calls to the backend).
+
+### 3. Docker (deployment)
+
+```bash
+cp .env.example .env              # at the repo root; fill in real values
+mkdir -p backend/config           # put service-account JSON keys here (mounted read-only)
+docker compose up -d --build      # UI on :${FRONTEND_PORT:-5001}, API on :${BACKEND_PORT:-8081}
+docker compose logs -f backend
+```
+
+- `backend` — Node API on the Playwright image (headless Chromium included), published on host
+  port `${BACKEND_PORT:-8081}`; the UI's nginx also proxies `/api` to it with a 30-min timeout. `backend/data`, `backend/logs` and
+  `backend/config` are bind-mounted from the checkout, so runtime state survives rebuilds.
+- `frontend` — Vite build served by nginx with SPA fallback. `VITE_*` values are baked in at build
+  time, so changing them needs `docker compose up -d --build frontend`.
+- `mongo` — optional local MongoDB 7: set `MONGODB_URI=mongodb://mongo:27017` and run
+  `docker compose --profile mongo up -d --build`. Without it, use Atlas via `MONGODB_URI`.
+- Set `BACKEND_BASE` to the public URL so OAuth callbacks resolve behind nginx. Services the
+  backend calls on `localhost:8080` (`BULK_CALENDAR_API_URL`, `OUTLOOK_DATA_API_URL`) must point at
+  a reachable host — `localhost` inside the container is the container itself.
+- Login is off unless `AUTH_ENABLED=true` and `VITE_AUTH_ENABLED=true`.
 
 ## API Endpoints
 

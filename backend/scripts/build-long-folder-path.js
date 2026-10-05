@@ -4,7 +4,7 @@
  *   - Creates 25 levels of nested folders, each with a long name
  * Run: node scripts/build-long-folder-path.js
  */
-require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
+require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 const { google } = require('googleapis');
 const driveClient = require('../src/clients/driveClient');
 

@@ -349,6 +349,18 @@ module.exports = {
    */
   DEVEMAIL_STORAGE_STATE: (process.env.DEVEMAIL_STORAGE_STATE || '').trim(),
 
+  /**
+   * Headless mode for the CloudFuze UI automation (services/cfBrowserAutomation.js).
+   * 'true' / 'false' force it; unset = headless only when there is no display to open a window
+   * on (Linux without DISPLAY, e.g. the Docker container), visible on a desktop.
+   */
+  CF_BROWSER_HEADLESS: (() => {
+    const v = (process.env.CF_BROWSER_HEADLESS || '').trim().toLowerCase();
+    if (v === 'true') return true;
+    if (v === 'false') return false;
+    return process.platform === 'linux' && !process.env.DISPLAY;
+  })(),
+
   /** Xray Server/DC + Jira: site base URL, no trailing slash */
   JIRA_BASE_URL: (process.env.JIRA_BASE_URL || '').trim().replace(/\/+$/, '').replace(/\/jira\/?$/i, ''),
   /** Basic auth user (Jira Server username or Jira Cloud email) */
@@ -1039,4 +1051,7 @@ module.exports = {
   AZURE_TENANT_ID: cleanEnvValue(process.env.AZURE_TENANT_ID || 'common'),
   AZURE_CLIENT_SECRET: cleanEnvValue(process.env.AZURE_CLIENT_SECRET || ''),
   JWT_SECRET: cleanEnvValue(process.env.JWT_SECRET || ''),
+  // Login kill-switch. Off by default (auth temporarily hidden); set AUTH_ENABLED=true (and
+  // VITE_AUTH_ENABLED=true for the frontend) to restore Microsoft login + per-user scoping.
+  AUTH_ENABLED: cleanEnvValue(process.env.AUTH_ENABLED || '').toLowerCase() === 'true',
 };

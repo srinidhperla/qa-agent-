@@ -4,7 +4,7 @@
  *   - embedded_link.xlsx  — Excel workbook with clickable hyperlink in a cell
  * Run: node scripts/create-embedded-links.js
  */
-require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
+require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 
 const path        = require('path');
 const os          = require('os');

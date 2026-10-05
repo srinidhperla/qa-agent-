@@ -3,10 +3,10 @@
  *
  *   cd backend && npm run audit-test-steps-mongo
  *
- * Requires MONGODB_URI in backend/.env (same as the app).
+ * Requires MONGODB_URI in the root .env (same as the app).
  */
 const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 
 const env = require('../src/config/env');
 const { connectMongo, closeMongo, getDb } = require('../src/db/mongo');
@@ -26,7 +26,7 @@ function stepCount(detail) {
 (async () => {
   const log = { info: console.log, warn: console.warn, error: console.error };
   if (!env.MONGODB_URI) {
-    console.error('MONGODB_URI is not set in backend/.env');
+    console.error('MONGODB_URI is not set in the root .env');
     process.exit(1);
   }
   try {

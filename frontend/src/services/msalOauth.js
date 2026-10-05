@@ -12,6 +12,9 @@
 const CLIENT_ID = import.meta.env.VITE_AZURE_CLIENT_ID;
 const TENANT_ID = import.meta.env.VITE_AZURE_TENANT_ID || 'common';
 
+// Login kill-switch — off unless VITE_AUTH_ENABLED=true (pair with backend AUTH_ENABLED=true).
+export const AUTH_ENABLED = String(import.meta.env.VITE_AUTH_ENABLED || '').toLowerCase() === 'true';
+
 const TOKEN_KEY = 'app_token';
 const USER_KEY = 'app_user';
 const VERIFIER_KEY = 'ms_pkce_verifier';
@@ -28,7 +31,7 @@ function base64urlEncode(buffer) {
 /** Kick off the Microsoft login: build PKCE params and redirect the browser to Microsoft. */
 export async function startMicrosoftLogin() {
   if (!CLIENT_ID) {
-    throw new Error('VITE_AZURE_CLIENT_ID is not set — configure it in frontend/.env');
+    throw new Error('VITE_AZURE_CLIENT_ID is not set — configure it in the root .env');
   }
   const verifier = base64urlEncode(crypto.getRandomValues(new Uint8Array(32)));
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
@@ -99,6 +102,7 @@ export function getAppUser() {
 }
 
 export function isLoggedIn() {
+  if (!AUTH_ENABLED) return true;
   return Boolean(getAppToken());
 }
 

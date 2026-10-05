@@ -1,4 +1,4 @@
-require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
+require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 const driveClient = require('../src/clients/driveClient');
 const { Document, Paragraph, TextRun, ExternalHyperlink, Packer } = require('docx');
 

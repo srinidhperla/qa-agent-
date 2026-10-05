@@ -3,7 +3,7 @@
  * of increasing size (100 MB → 10 GB) using streaming (no disk usage).
  * Run: node scripts/create-large-files.js
  */
-require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
+require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 const { google }   = require('googleapis');
 const { Readable } = require('stream');
 const driveClient  = require('../src/clients/driveClient');

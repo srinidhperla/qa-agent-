@@ -204,7 +204,7 @@ async function generateTestCases(req, res) {
   const apiKey = (process.env.OPENAI_API_KEY || '').trim();
   if (!apiKey) {
     return res.status(503).json({
-      error: 'OPENAI_API_KEY is not set. Add it to backend/.env to use the test case generator.',
+      error: 'OPENAI_API_KEY is not set. Add it to the root .env to use the test case generator.',
     });
   }
 
