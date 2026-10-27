@@ -96,6 +96,17 @@ jobs:
             exit 1
           fi
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          # Accept the key either as the raw OpenSSH block or as one base64 line
+          # (`base64 -w0 ~/.ssh/qa_agent_deploy` on the server). Copying the raw block out of a
+          # terminal tends to add trailing spaces or CR characters, which ssh rejects with
+          # "error in libcrypto" — the first deploy (run 40464265574) failed exactly that way.
+          if printf '%s' "$SSH_KEY" | grep -q 'BEGIN OPENSSH PRIVATE KEY'; then
+            printf '%s\n' "$SSH_KEY" | tr -d '\r' | sed 's/[[:space:]]*$//' > ~/.ssh/deploy_key
+          else
+            printf '%s' "$SSH_KEY" | tr -d '\r\n ' | base64 -d > ~/.ssh/deploy_key
+          fi
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keygen -y -f ~/.ssh/deploy_key > /dev/null \
+            || { echo "DEV_SERVER_SSH_KEY is not a readable private key — re-copy it (see the comment above)."; exit 1; }
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=60 \
             "$SSH_USER@$HOST" 'bash -s' < deploy/deploy-dev.sh

@@ -39,7 +39,14 @@ docker compose version >/dev/null 2>&1 || {
 
 # ── 1. Wait for running QA runs to finish ────────────────────────────────────────────────────
 health() { curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$API/health" || true; }
-if [ "$(health)" = "200" ]; then
+# Called twice: before the build, and again just before the restart — the build takes several
+# minutes, and a run started during it would otherwise be killed by the restart.
+wait_for_idle() {
+  if [ "$(health)" != "200" ]; then
+    log "Backend is not answering /api/health — nothing running to protect."
+    return 0
+  fi
+  local running=""
   for minute in $(seq 1 "$MAX_WAIT_MIN"); do
     running=$(curl -s --max-time 30 "$API/agents/stats" | sed -n 's/.*"running":\([0-9][0-9]*\).*/\1/p')
     if [ -z "$running" ]; then
@@ -47,18 +54,14 @@ if [ "$(health)" = "200" ]; then
       log "Could not read the run count from $API/agents/stats. Not deploying — a restart could kill a run."
       exit 1
     fi
-    [ "$running" = "0" ] && break
+    [ "$running" = "0" ] && { log "No runs in progress."; return 0; }
     log "$running QA run(s) in progress — waiting (minute $minute of $MAX_WAIT_MIN)"
     sleep 60
   done
-  if [ "$running" != "0" ]; then
-    log "Still $running run(s) after $MAX_WAIT_MIN minutes. Nothing was changed; re-run the deploy later."
-    exit 1
-  fi
-  log "No runs in progress."
-else
-  log "Backend is not answering /api/health — nothing running to protect, deploying straight away."
-fi
+  log "Still $running run(s) after $MAX_WAIT_MIN minutes. Nothing was restarted; re-run the deploy later."
+  exit 1
+}
+wait_for_idle
 
 # ── 2. Update the code ───────────────────────────────────────────────────────────────────────
 before=$(git rev-parse --short HEAD)
@@ -74,6 +77,9 @@ log "Code: $before -> $after"
 # ── 3. Build and restart ─────────────────────────────────────────────────────────────────────
 log "Building images (several minutes on this server)…"
 docker compose build
+
+# Someone may have started a run while the images were building.
+wait_for_idle
 
 # One-time switch from Compose v1: its containers are named <project>_<service>_1 and hold the
 # ports, so v2 could not start alongside them. Removing a container does not touch backend/data,
