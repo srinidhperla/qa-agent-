@@ -8,7 +8,7 @@
  * Run: node scripts/test-ews-insert.js
  */
 
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 
 const axios = require('axios');
 const env   = require('../src/config/env');

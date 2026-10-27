@@ -1,75 +1,91 @@
-# Migration QA Agent System — server deployment.
+# Migration QA Agent — production stack.
 #
+#   cp .env.example .env        # fill in real values (never commit .env)
 #   docker compose up -d --build
+#   UI  -> http://<host>:${FRONTEND_PORT:-5001}   (nginx: SPA + /api proxy)
+#   API -> http://<host>:${BACKEND_PORT:-8081}/api/health
 #
-# Prerequisites on the server (see DEPLOYMENT.md):
-#   - the repo checkout, including a real root .env (gitignored, copy it across)
-#   - backend/config/<service-account>.json for Google DWD
-#   - MONGODB_URI reachable from the server (Atlas IP allow-list, or the
-#     bundled mongo service via `--profile local-mongo`)
+# Optional local MongoDB instead of Atlas:
+#   set MONGODB_URI=mongodb://mongo:27017 in .env, then
+#   docker compose --profile mongo up -d --build
 #
-# The root .env is both the compose variable file AND the file the backend reads
-# at runtime — it is mounted read-only at /app/.env, which is exactly where
-# backend/src/config/env.js looks for it. Nothing secret is baked into an image.
+# The root .env feeds both the backend container (env_file) and the frontend build args
+# (Compose reads it automatically for ${...} interpolation).
+
+name: migration-qa
 
 services:
   backend:
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
     image: migration-qa-backend:latest
-    container_name: qa-agent-backend
     restart: unless-stopped
-    init: true
+    env_file:
+      - .env
     environment:
       NODE_ENV: production
       PORT: 5000
+      # No display in the container — run the CloudFuze UI automation headless.
+      CF_BROWSER_HEADLESS: 'true'
     volumes:
-      # The one file env.js resolves as ../../../.env from src/config.
-      - ./.env:/app/.env:ro
-      # Service-account keys — read-only, referenced as ./config/*.json (CWD = /app/backend).
-      - ./backend/config:/app/backend/config:ro
-      # Seeded test-case catalogs plus runtime state (executions, oauth tokens, caches).
+      # Runtime JSON fallback store, OAuth tokens, test-case catalogs, feature-scope docs
       - ./backend/data:/app/backend/data
-      # Winston app.log + one log file per execution.
+      # Winston app.log + per-execution log files
       - ./backend/logs:/app/backend/logs
+      # Service-account keys referenced by GOOGLE_SERVICE_ACCOUNT_KEY* (relative to backend/)
+      - ./backend/config:/app/backend/config:ro
+    # Lets the container reach services on the Docker host (e.g. the :8080 calendar / Outlook-data
+    # APIs) as http://host.docker.internal:8080 — `localhost` inside the container is the container.
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    # Only applies with --profile mongo; the backend connects to Mongo once at startup.
+    depends_on:
+      mongo:
+        condition: service_started
+        required: false
+    # Chromium (Playwright) needs more than Docker's 64 MB default /dev/shm.
+    shm_size: 1gb
+    # API published on the host at ${BACKEND_PORT:-8081} (container listens on 5000).
+    # The UI does not need this — its nginx proxies /api to backend:5000 internally.
     ports:
-      # Bound to loopback: browsers reach the API through nginx on the frontend
-      # service. Publish it wider only if an external OAuth callback needs it.
-      - '127.0.0.1:5000:5000'
-    networks: [qa-agent]
+      - '${BACKEND_PORT:-8081}:5000'
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: '5'
 
   frontend:
     build:
-      context: ./frontend
+      context: .
+      dockerfile: frontend/Dockerfile
       args:
-        # Build-time only — Vite inlines these. Values come from the root .env.
+        VITE_AUTH_ENABLED: ${VITE_AUTH_ENABLED:-false}
         VITE_AZURE_CLIENT_ID: ${VITE_AZURE_CLIENT_ID:-}
         VITE_AZURE_TENANT_ID: ${VITE_AZURE_TENANT_ID:-common}
     image: migration-qa-frontend:latest
-    container_name: qa-agent-frontend
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
-      # Host port 3000 keeps the Azure redirect URI the app already registers.
-      - '${FRONTEND_PORT:-3000}:80'
-    networks: [qa-agent]
+      - '${FRONTEND_PORT:-5001}:80'
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
 
-  # Opt-in local database: `docker compose --profile local-mongo up -d`.
-  # Only useful when MONGODB_URI points at mongodb://mongo:27017 instead of Atlas.
-  # Leaving MONGODB_URI empty is also valid — the app falls back to backend/data/*.json.
   mongo:
     image: mongo:7
-    container_name: qa-agent-mongo
+    profiles: ['mongo']
     restart: unless-stopped
-    profiles: [local-mongo]
     volumes:
       - mongo-data:/data/db
-    networks: [qa-agent]
-
-networks:
-  qa-agent:
-    driver: bridge
+    expose:
+      - '27017'
 
 volumes:
   mongo-data:

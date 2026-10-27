@@ -18,7 +18,7 @@
  * Progress logs every 200 issue ids processed (success or failure). Under heavy throttling use concurrency 1.
  */
 const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 
 const logger = require('../src/utils/logger');
 const { connectMongo, closeMongo } = require('../src/db/mongo');

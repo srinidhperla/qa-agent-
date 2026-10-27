@@ -6,7 +6,7 @@
  *   node scripts/push-test-repository-json-to-mongo.js
  */
 const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 
 const logger = require('../src/utils/logger');
 const env = require('../src/config/env');
@@ -18,7 +18,7 @@ const log = logger.child({ script: 'push-test-repository-json-to-mongo' });
 
 (async () => {
   if (!env.MONGODB_URI) {
-    console.error('Set MONGODB_URI in backend/.env');
+    console.error('Set MONGODB_URI in the root .env');
     process.exit(1);
   }
 

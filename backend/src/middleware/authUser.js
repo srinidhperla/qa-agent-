@@ -8,6 +8,12 @@ const env = require('../config/env');
  * so the frontend can send the user back to the sign-in screen.
  */
 function requireUser(req, res, next) {
+  // Auth temporarily disabled: no owner, so every execution is visible (see ownsExecution).
+  if (!env.AUTH_ENABLED) {
+    req.userEmail = '';
+    req.userName = '';
+    return next();
+  }
   const hdr = req.headers.authorization || '';
   const token = hdr.startsWith('Bearer ') ? hdr.slice(7).trim() : '';
   if (!token) return res.status(401).json({ error: 'Not authenticated' });
@@ -27,6 +33,7 @@ function requireUser(req, res, next) {
 /** True when an execution is visible to this user: their own, or a legacy (pre-login) run. */
 function ownsExecution(execution, userEmail) {
   if (!execution) return false;
+  if (!env.AUTH_ENABLED) return true; // auth disabled — no per-user scoping
   if (!execution.userEmail) return true; // legacy runs created before per-user scoping
   return String(execution.userEmail).toLowerCase() === String(userEmail || '').toLowerCase();
 }

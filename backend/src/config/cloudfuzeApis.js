@@ -10,7 +10,7 @@
  *   message  → s2cdev.cloudfuze.com       (Slack / Teams / Google Chat)
  *
  * Server URL + credentials are resolved at runtime:
- *   - mail/content → from env (config/env.js, sourced from backend/.env)
+ *   - mail/content → from env (config/env.js, sourced from the root .env)
  *   - message      → per migration from the wizard (context.migrationServer*),
  *                    falling back to env. NO hardcoded message account.
  *

@@ -143,7 +143,7 @@ class CFBrowserAutomation extends EventEmitter {
       cfDstCloudId   = null,
       cfUsername     = env.MIGRATION_API_USERNAME,
       cfPassword     = env.MIGRATION_API_PASSWORD,
-      headless       = false,
+      headless       = env.CF_BROWSER_HEADLESS,
       mappingType    = 'auto',
       userMappings   = [],
       userMappingCsvPath = null,
@@ -156,7 +156,8 @@ class CFBrowserAutomation extends EventEmitter {
     this.browser = await chromium.launch({
       headless,
       slowMo: 100,
-      args: ['--start-maximized', '--no-sandbox', '--disable-setuid-sandbox'],
+      // --window-size gives headless runs a desktop-sized page (viewport: null follows the window).
+      args: ['--start-maximized', '--window-size=1920,1080', '--no-sandbox', '--disable-setuid-sandbox'],
       ...(chromiumExe ? { executablePath: chromiumExe } : {}),
     });
 

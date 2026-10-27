@@ -1,36 +1,29 @@
-# Migration QA Agent — backend (Node 22 + Express + Playwright/Chromium)
+# Backend API + agents. Build context: repo root (see docker-compose.yml).
 #
-# The image mirrors the repo layout on purpose: src/config/env.js loads the .env
-# from `../../../.env` relative to itself, so the app must live at /app/backend
-# with the shared .env mounted at /app/.env. Relative env values such as
-# GOOGLE_SERVICE_ACCOUNT_KEY=./config/... resolve against the CWD, which is why
-# WORKDIR stays /app/backend.
-FROM node:22-bookworm-slim
+# Based on the official Playwright image so headless Chromium and its system libraries are
+# already present (devemail/qarelease browser clients, cfBrowserAutomation). The tag must
+# match the `playwright` version in backend/package-lock.json — bump both together.
+FROM mcr.microsoft.com/playwright:v1.61.0-noble
 
-# Keep Playwright's browsers outside the home directory so the path is stable.
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
-    NODE_ENV=production \
+ENV NODE_ENV=production \
     PORT=5000
 
+# Layout mirrors the repo so the relative paths in src/ keep working:
+#   /app/backend/...         code, data/, logs/, config/
+#   /app/group-mapping.csv   read via path.join(__dirname, '../../../..') from agents/validators
 WORKDIR /app/backend
 
-# Dependencies first — this layer is reused whenever only source changes.
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+COPY backend/package.json backend/package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
 
-# Chromium + its system libraries. Playwright resolves the revision that matches
-# the installed playwright package, so this stays in sync with package.json.
-RUN npx playwright install --with-deps chromium \
-    && rm -rf /var/lib/apt/lists/*
+COPY backend/ ./
+COPY *.csv /app/
 
-COPY . .
-
-# Created here so the container still starts when the host bind mounts are absent.
 RUN mkdir -p logs data config
 
 EXPOSE 5000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD node -e "require('http').get('http://127.0.0.1:'+(process.env.PORT||5000)+'/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||5000)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 CMD ["node", "src/server.js"]

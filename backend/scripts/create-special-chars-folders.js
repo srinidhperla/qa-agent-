@@ -7,7 +7,7 @@
  *   5. Mixed (all types combined)
  * Run: node scripts/create-special-chars-folders.js
  */
-require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
+require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 const driveClient = require('../src/clients/driveClient');
 
 const EMAIL = 'zara@storefuze.com';

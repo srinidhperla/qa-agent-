@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
-import { getAppUser, logout } from '../services/msalOauth';
+import { AUTH_ENABLED, getAppUser, logout } from '../services/msalOauth';
 
 /** Initials from a name ("Bhuvana Mosra" → "BM") or email, max 2 chars. */
 function initialsOf(nameOrEmail) {
@@ -86,7 +86,8 @@ export default function Sidebar({ collapsed, onToggle }) {
         })}
       </nav>
 
-      {/* Footer — account avatar with a Log out popover */}
+      {/* Footer — account avatar with a Log out popover (hidden while login is disabled) */}
+      {AUTH_ENABLED && (
       <div ref={menuRef} className="relative border-t border-slate-600 px-3 py-3">
         <button
           type="button"
@@ -136,6 +137,7 @@ export default function Sidebar({ collapsed, onToggle }) {
         )}
 
       </div>
+      )}
     </aside>
   );
 }
