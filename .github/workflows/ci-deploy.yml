@@ -1,0 +1,101 @@
+# Checks every push, and deploys the srinidh branch of srinidhperla/qa-agent- to the dev server.
+#
+#   backend  — npm ci, lint, the node+assert test chain (Node 22, the version in the Playwright
+#              image the server's backend runs on)
+#   frontend — npm ci, lint (report only, see below), production build (Node 24, as its Dockerfile)
+#   deploy   — only after both pass, only on a push to srinidh, only in the server repo. Runs
+#              deploy/deploy-dev.sh on the server over SSH; that script waits for running QA runs
+#              to finish before restarting anything.
+#
+# The deploy job is pinned to the server repo by name so this file is harmless if the branch is
+# ever merged into the team repo: there it only runs the checks.
+#
+# Secrets, set in the repo under Settings → Secrets and variables → Actions:
+#   DEV_SERVER_HOST     159.89.175.168
+#   DEV_SERVER_USER     the SSH user (root on this server today)
+#   DEV_SERVER_SSH_KEY  the private half of the deploy key (its .pub goes in ~/.ssh/authorized_keys)
+
+name: CI / deploy dev
+
+on:
+  push:
+    branches: [srinidh]
+  pull_request:
+  workflow_dispatch:
+
+# Two pushes in quick succession must not run two deploys against one server at once.
+concurrency:
+  group: ci-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    # There is no .env on the runner. Four tests read plain configuration from it, and pass on a
+    # developer machine only because .env exists there (checked 27 Oct with a clean checkout):
+    #   contentCombinationSuite   — needs a SharePoint site other than the code default
+    #   dropboxToSharepoint       — asserts a Dropbox test group is configured
+    #   dropboxFeatureSplit       — needs an external test user configured
+    # None of these is a credential; the external user is a placeholder that is never contacted.
+    env:
+      SHAREPOINT_SITE_PATH: /sites/QA
+      SHAREPOINT_HOSTNAME: trydemos.sharepoint.com
+      DROPBOX_TEST_GROUPS: QA-Automation
+      DROPBOX_TEST_EXTERNAL_USER: external-qa@example.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: npm test
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      # Report-only for now: 7 errors in 4 files predate this pipeline (27 Oct). Remove
+      # continue-on-error once they are fixed, so a new lint error blocks the deploy.
+      - run: npm run lint
+        continue-on-error: true
+      - run: npm run build
+
+  deploy:
+    needs: [backend, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/srinidh' && github.repository == 'srinidhperla/qa-agent-'
+    runs-on: ubuntu-latest
+    # Up to 120 minutes waiting for a running QA run to finish, plus the build.
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to the dev server
+        env:
+          SSH_KEY: ${{ secrets.DEV_SERVER_SSH_KEY }}
+          HOST: ${{ secrets.DEV_SERVER_HOST }}
+          SSH_USER: ${{ secrets.DEV_SERVER_USER }}
+        run: |
+          if [ -z "$SSH_KEY" ] || [ -z "$HOST" ] || [ -z "$SSH_USER" ]; then
+            echo "DEV_SERVER_HOST / DEV_SERVER_USER / DEV_SERVER_SSH_KEY are not set — skipping deploy."
+            exit 1
+          fi
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=60 \
+            "$SSH_USER@$HOST" 'bash -s' < deploy/deploy-dev.sh
