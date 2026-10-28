@@ -1272,6 +1272,30 @@ async function probeCloudEnumeration(cloudId, { timeoutMs = 60000 } = {}) {
   }
 }
 
+/**
+ * Whether a probeCloudEnumeration result should stop the run.
+ *
+ * Only EMPTY blocks, and never for a Dropbox Business source: its admin-level /filefolder is
+ * empty even when the cloud works, because the data sits under each member's folder
+ * ("/Erik E/…"), not at the team root. Dropbox cloud 6ae197d9 answered 0 entries here while the
+ * same cloud validated "/Erik E/QA-dropbox-sharedrive" as a passed CSV pair and migrated 68 items
+ * (28 Oct, run 287c6ce8). The previous run, e0b4bed8, was stopped by this check on that false 0.
+ */
+function preflightBlocksRun(probe, sourceCloudName) {
+  if (!probe || probe.verdict !== 'EMPTY') return false;
+  return !/DROPBOX/i.test(String(sourceCloudName || ''));
+}
+
+/**
+ * True when the server closed the connection without answering — no HTTP response at all. Seen
+ * three times in run 287c6ce8, each in the same second the request was sent, which is a reused
+ * idle connection the server had already dropped rather than a slow reply.
+ */
+function isConnectionDrop(err) {
+  if (!err || err.response) return false;
+  return err.code === 'ECONNRESET' || /socket hang up/i.test(String(err.message || ''));
+}
+
 async function triggerMigration(context) {
   // ── Content server (qarelease/Basic auth): Team Migration via newmultiuser API ──
   // 4-step flow matching the qarelease Team Migration UI:
@@ -1297,7 +1321,7 @@ async function triggerMigration(context) {
     // is logged, not enforced. Set CONTENT_PREFLIGHT_SOURCE_ENUM=false to skip it entirely.
     if (env.CONTENT_PREFLIGHT_SOURCE_ENUM !== 'false' && context.sourceCloudId) {
       const probe = await probeCloudEnumeration(context.sourceCloudId);
-      if (probe.verdict === 'EMPTY') {
+      if (preflightBlocksRun(probe, context.sourceCloudName)) {
         throw new Error(
           `CloudFuze cannot list anything in the source cloud ${context.sourceCloudId} `
           + `(${context.sourceCloudName || context.sourceProvider || 'source'}) — its own `
@@ -1311,6 +1335,10 @@ async function triggerMigration(context) {
       }
       if (probe.verdict === 'OK') {
         logger.info(`CloudFuze pre-flight: source cloud enumerates ${probe.count} entry(ies) — proceeding`);
+      } else if (probe.verdict === 'EMPTY') {
+        logger.info('CloudFuze pre-flight: Dropbox Business source lists 0 entries at the team root, '
+          + 'which is normal (files sit under member folders) — proceeding; CloudFuze validates the '
+          + 'member path itself in the CSV step');
       } else {
         logger.warn(`CloudFuze pre-flight: could not determine whether the source cloud enumerates `
           + `(${probe.detail}) — proceeding, but a CONFLICT for "wrong CSV paths" would point here`);
@@ -2146,10 +2174,27 @@ ${pathCsv}`);
 
     const createJobUrl = `${contentOrigin}/proxyservices/v1/move/newmultiuser/create/job`;
     logger.info(`CloudFuze create multiuser job: POST ${createJobUrl} pairs=${JSON.stringify(workspacePairs)}`);
-    const createJobRes = await axios.post(createJobUrl, workspacePairs, migrationAxiosConfig({
+    const createJobConfig = {
       headers: { Authorization: contentAuth, 'Content-Type': 'application/json' },
       timeout: 30000,
-    }));
+    };
+    let createJobRes;
+    try {
+      createJobRes = await axios.post(createJobUrl, workspacePairs, migrationAxiosConfig(createJobConfig));
+    } catch (createErr) {
+      // Run 287c6ce8 failed here on "socket hang up" after the CSV pair had already passed
+      // validation. A drop with no response means the request went out on a connection the server
+      // had closed, so it is retried once on a fresh, non-reused connection. Any HTTP reply is a
+      // real answer and is not retried. Only the job id returned here is ever started, so even if
+      // the first request did land, the worst case is one idle, never-started job in the list.
+      if (!isConnectionDrop(createErr)) throw createErr;
+      logger.warn(`CloudFuze create multiuser job: connection dropped (${createErr.message}) — `
+        + 'retrying once on a fresh connection');
+      createJobRes = await axios.post(createJobUrl, workspacePairs, {
+        ...createJobConfig,
+        httpsAgent: new https.Agent({ keepAlive: false, rejectUnauthorized: !env.MIGRATION_API_TLS_INSECURE }),
+      });
+    }
     logger.info(`CloudFuze multiuser job created: ${JSON.stringify(createJobRes.data)}`);
 
     const jobId =
@@ -3247,6 +3292,8 @@ module.exports = {
   sharepointCloudPath,
   migrationAxiosConfig,
   contentMappingVerdict,
+  preflightBlocksRun,
+  isConnectionDrop,
   acquireSessionLock,
   withSessionLock,
 };
