@@ -1296,6 +1296,28 @@ function isConnectionDrop(err) {
   return err.code === 'ECONNRESET' || /socket hang up/i.test(String(err.message || ''));
 }
 
+/**
+ * Sends one CloudFuze request, and sends it once more on a fresh, non-reused connection if the
+ * first was dropped with no answer at all. `send(overrides)` must spread `overrides` into its axios
+ * config last. HTTP errors and timeouts are a real answer (or may still be in flight), so they are
+ * thrown unchanged rather than repeated.
+ *
+ * qarelease dropped 17 requests in run ec204ed5 (30 Oct) and the one that landed on "update job
+ * options" ended the run, because only create/job could recover. The job steps now all go through
+ * here.
+ */
+async function retryOnConnectionDrop(label, send) {
+  try {
+    return await send({});
+  } catch (err) {
+    if (!isConnectionDrop(err)) throw err;
+    logger.warn(`CloudFuze ${label}: connection dropped (${err.message}) — retrying once on a fresh connection`);
+    return send({
+      httpsAgent: new https.Agent({ keepAlive: false, rejectUnauthorized: !env.MIGRATION_API_TLS_INSECURE }),
+    });
+  }
+}
+
 async function triggerMigration(context) {
   // ── Content server (qarelease/Basic auth): Team Migration via newmultiuser API ──
   // 4-step flow matching the qarelease Team Migration UI:
@@ -2174,27 +2196,17 @@ ${pathCsv}`);
 
     const createJobUrl = `${contentOrigin}/proxyservices/v1/move/newmultiuser/create/job`;
     logger.info(`CloudFuze create multiuser job: POST ${createJobUrl} pairs=${JSON.stringify(workspacePairs)}`);
-    const createJobConfig = {
-      headers: { Authorization: contentAuth, 'Content-Type': 'application/json' },
-      timeout: 30000,
-    };
-    let createJobRes;
-    try {
-      createJobRes = await axios.post(createJobUrl, workspacePairs, migrationAxiosConfig(createJobConfig));
-    } catch (createErr) {
-      // Run 287c6ce8 failed here on "socket hang up" after the CSV pair had already passed
-      // validation. A drop with no response means the request went out on a connection the server
-      // had closed, so it is retried once on a fresh, non-reused connection. Any HTTP reply is a
-      // real answer and is not retried. Only the job id returned here is ever started, so even if
-      // the first request did land, the worst case is one idle, never-started job in the list.
-      if (!isConnectionDrop(createErr)) throw createErr;
-      logger.warn(`CloudFuze create multiuser job: connection dropped (${createErr.message}) — `
-        + 'retrying once on a fresh connection');
-      createJobRes = await axios.post(createJobUrl, workspacePairs, {
-        ...createJobConfig,
-        httpsAgent: new https.Agent({ keepAlive: false, rejectUnauthorized: !env.MIGRATION_API_TLS_INSECURE }),
-      });
-    }
+    // Run 287c6ce8 failed here on "socket hang up" after the CSV pair had already passed validation.
+    // Only the job id returned here is ever started, so even if a dropped first request did land,
+    // the worst case is one idle, never-started job in the list.
+    const createJobRes = await retryOnConnectionDrop('create multiuser job', (over) => axios.post(
+      createJobUrl, workspacePairs, {
+        ...migrationAxiosConfig({
+          headers: { Authorization: contentAuth, 'Content-Type': 'application/json' },
+          timeout: 30000,
+        }),
+        ...over,
+      }));
     logger.info(`CloudFuze multiuser job created: ${JSON.stringify(createJobRes.data)}`);
 
     const jobId =
@@ -2354,9 +2366,11 @@ ${pathCsv}`);
     // CloudFuze objected to an option, the job id, or had simply crashed.
     let updateRes;
     try {
-      updateRes = await axios.put(updateUrl, null, migrationAxiosConfig({
-        headers: { Authorization: contentAuth },
-        timeout: 30000,
+      // Setting the same options twice leaves the job as one call would, so a dropped send is safe
+      // to repeat.
+      updateRes = await retryOnConnectionDrop('update job options', (over) => axios.put(updateUrl, null, {
+        ...migrationAxiosConfig({ headers: { Authorization: contentAuth }, timeout: 30000 }),
+        ...over,
       }));
     } catch (updErr) {
       const status = updErr?.response?.status;
@@ -2411,9 +2425,11 @@ ${pathCsv}`);
     // ── Step 4: Start migration ───────────────────────────────────────────────
     const startUrl = `${contentOrigin}/proxyservices/v1/move/newmultiuser/create/${jobId}`;
     logger.info(`CloudFuze start migration: POST ${startUrl}`);
-    const startRes = await axios.post(startUrl, null, migrationAxiosConfig({
-      headers: { Authorization: contentAuth },
-      timeout: 60000,
+    // Retried only on a drop with no answer. A timeout is NOT retried here: the job may already be
+    // starting, and a second start for the same job id is the one repeat this step must not risk.
+    const startRes = await retryOnConnectionDrop('start migration', (over) => axios.post(startUrl, null, {
+      ...migrationAxiosConfig({ headers: { Authorization: contentAuth }, timeout: 60000 }),
+      ...over,
     }));
     logger.info(`CloudFuze start migration response: ${JSON.stringify(startRes.data)}`);
 
@@ -3294,6 +3310,7 @@ module.exports = {
   contentMappingVerdict,
   preflightBlocksRun,
   isConnectionDrop,
+  retryOnConnectionDrop,
   acquireSessionLock,
   withSessionLock,
 };
