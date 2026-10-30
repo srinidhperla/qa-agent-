@@ -1061,6 +1061,19 @@ function crossCheckEmbeddedLinksCsv(csv, anchors, opts = {}) {
         + 'migrated has no destination URL to be rewritten to.');
       continue;
     }
+    if (!/^https?:\/\//i.test(destUrl)) {
+      // No address at all — run c5f54430's out-of-scope row read "Parent File/Link Doesn't found",
+      // CloudFuze saying it could not resolve the target. That records no rewrite, so it states no
+      // expected value, and the FAIL below ("recorded the destination URL ... did not apply it")
+      // would be false. The hostname judgement still decides whether an in-scope link was left.
+      if (atSource) seen.add(atSource.key);
+      note('INFO',
+        `8.1 / 10.8: ${csvName} records no destination address for ${linkName} — its `
+        + `Destination url reads "${String(row['destination url'] || '').trim()}" — so CloudFuze `
+        + 'did not resolve that target and recorded no rewrite to check the document against. '
+        + 'Nothing is claimed from this row; the document\'s own hostnames decide.');
+      continue;
+    }
     if (atDest) {
       seen.add(atDest.key);
       verdict('PASS', null,

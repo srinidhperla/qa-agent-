@@ -436,6 +436,48 @@ function testIdenticalSourceAndDestinationUrlIsInfo() {
   console.log('  8.1 identical Source/Destination url: INFO, never FAIL — ok');
 }
 
+/**
+ * The out-of-scope row as the LIVE CSV wrote it on run c5f54430: no URL in Destination url, only
+ * CloudFuze's "not found" text. The identical-URL fixture above never matched it, so this row fell
+ * through to the FAIL branch and failed 8.1 on a link scope 10.8 says must stay at Dropbox.
+ */
+function testNotFoundDestinationIsInfo() {
+  const rowNotFound = csvRow({
+    no: 2,
+    originalName: 'embedded_link_doc.docx',
+    originalPath: SRC_DOC_PATH,
+    linkFileName: 'link-target-out-of-scope.txt',
+    linkTextName: 'out-of-scope target',
+    linkedPath: ' Parent File/Link Doesn\'t found ',
+    sourceUrl: MEASURED_OUT_OF_SCOPE_URL,
+    destinationUrl: 'Parent File/Link Doesn\'t found',
+    destinationPath: '',
+  });
+  const csv = parseEmbeddedLinksCsv([CSV_HEADER, ROW_IN_SCOPE, rowNotFound]);
+  const cross = crossCheckEmbeddedLinksCsv(csv, anchorsOf(REWRITTEN_DEST_HTML), {
+    destPath: DEST_DOC_PATH, csvName: CSV_NAME,
+  });
+  assert.deepStrictEqual(statuses(cross.verdicts), ['PASS'], 'only the in-scope row decides');
+  const info = cross.observations.find((r) => /records no destination address/.test(r.detail));
+  assert.ok(info && info.status === 'INFO', 'the not-found row is reported at INFO');
+  assert.ok(/Parent File\/Link Doesn't found/.test(info.detail), 'CloudFuze\'s own text is quoted');
+  assert.strictEqual(statuses(cross.observations).includes('FAIL'), false);
+
+  const rows = judgeEmbeddedLinks(extractHtmlAnchors(REWRITTEN_DEST_HTML), {
+    destPath: DEST_DOC_PATH, csv, csvName: CSV_NAME,
+  });
+  assert.strictEqual(statuses(rows).includes('FAIL'), false, '8.1 passes on a correct migration');
+
+  // The guard does not hide a real defect: an in-scope link left at Dropbox still fails by hostname.
+  const stale = judgeEmbeddedLinks(extractHtmlAnchors(MEASURED_DEST_HTML), {
+    destPath: DEST_DOC_PATH,
+    csv: parseEmbeddedLinksCsv([CSV_HEADER, rowNotFound]),
+    csvName: CSV_NAME,
+  });
+  assert.ok(statuses(verdictRows(stale)).includes('FAIL'), 'an unrewritten in-scope link still fails');
+  console.log('  8.1 "Parent File/Link Doesn\'t found" destination: INFO, never FAIL — ok');
+}
+
 /** A row CloudFuze wrote whose link is in neither state: the link may have been dropped. */
 function testCsvRowWithNoMatchingHrefWarns() {
   const csv = parseEmbeddedLinksCsv([CSV_HEADER, ROW_IN_SCOPE, ROW_OUT_OF_SCOPE]);
@@ -616,6 +658,7 @@ function run() {
   testHrefMatchingDestinationUrlPasses();
   testHrefStillAtSourceUrlFails();
   testIdenticalSourceAndDestinationUrlIsInfo();
+  testNotFoundDestinationIsInfo();
   testCsvRowWithNoMatchingHrefWarns();
   testHrefWithNoCsvRowWarns();
   testHostnameFallbackUnchanged();
